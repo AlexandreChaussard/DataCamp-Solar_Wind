@@ -1,15 +1,54 @@
-# General imports
-from sklearn import preprocessing
-from sklearn.pipeline import Pipeline
 import pandas as pd
-import numpy as np
+
+import problem
+
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix
+import sklearn.preprocessing as preprocessing
 
 from sklearn.base import BaseEstimator
 
-from sklearn.pipeline import make_pipeline
+import numpy as np
 
 
-# Model imports
+def fetch_data(percentage=1.0):
+    print(f"[Data] Fetching {int(percentage * 100)}% of the data...")
+    data_train, label_train = problem.get_train_data(path="../")
+    data_test, label_test = problem.get_test_data(path="../")
+
+    index_train = int(len(data_train.index) * percentage)
+    index_test = int(len(data_test.index) * percentage)
+    data_train, label_train = data_train[:index_train], label_train[:index_train]
+    data_test, label_test = data_test[:index_test], label_test[:index_test]
+
+    return data_train, label_train, data_test, label_test
+
+
+def run_estimator(
+        estimator: Pipeline,
+        name: str,
+        X_train=None,
+        y_train=None,
+        X_test=None,
+        y_test=None
+):
+    print(f"[Pipeline] Running pipepline: {name}")
+    # Fitting estimator
+    print("           * Fitting the training set")
+    estimator.fit(X_train, y_train)
+    # Making prediction
+    print("           * Predicting on the test set")
+    y_pred = estimator.predict(X_test)
+    # Print model information
+    print("           * Printing report")
+    report = classification_report(y_test, y_pred)
+    print(report)
+    print(f"           * Balanced Accuracy: {balanced_accuracy_score(y_test, y_pred)}")
+    # Printing confusion matrix
+    print("           * Printing confusion matrix")
+    cm = confusion_matrix(y_test, y_pred, normalize='true')
+    print(cm)
 
 
 class FeatureExtractor(BaseEstimator):
@@ -93,23 +132,3 @@ def get_preprocessing():
     return preprocessing.QuantileTransformer(n_quantiles=100, output_distribution='normal', random_state=1), \
            preprocessing.StandardScaler(), \
            preprocessing.MinMaxScaler()
-
-
-from sklearn.ensemble import RandomForestClassifier
-
-
-def get_estimator() -> Pipeline:
-    feature_extractor = FeatureExtractor()
-
-    classifier = RandomForestClassifier(n_estimators=50,
-                                        max_depth=9,
-                                        criterion='entropy',
-                                        random_state=1,
-                                        class_weight={0: 1, 1: 1.5})
-
-    pipe = make_pipeline(
-        feature_extractor,
-        *get_preprocessing(),
-        classifier
-    )
-    return pipe
