@@ -108,15 +108,85 @@ class FeatureExtractor(BaseEstimator):
         X_df = self.fill_missing_values(X_df, name, feature)
         return X_df
 
+    def compute_ratio_pression_magnetique_plasma(self, X_df: pd.DataFrame):
+        X_df['PMP_Ratio'] = X_df['Beta'] / X_df['Pdyn']
+        return X_df
+
+    def drop_columns(self, X_df: pd.DataFrame, dropped_columns):
+        X_df = X_df.drop(columns=dropped_columns)
+        return X_df
+
+    def drop_all_else_columns(self, X_df: pd.DataFrame, kept_columns):
+        for feature in X_df.columns:
+            if feature not in kept_columns:
+                X_df = self.drop_columns(X_df, [feature])
+        return X_df
+
     def transform(self, X):
-        X_df = self.compute_rolling_var(X, "Beta", "2h")
+
+        X_df = X
+
+        X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
+
+        X_df = self.drop_all_else_columns(X_df, [
+            'Beta',
+            'By',
+            'Bz',
+            'Np',
+            'Np_nl',
+            'Na_nl',
+            'Vx',
+            'Vy',
+            'B',
+            'V',
+            'RmsBob',
+            'Range F 0',
+            'Range F 1',
+            'Range F 10',
+            'Range F 9'
+        ])
+
+        X_df = self.compute_rolling_var(X_df, "Beta", "2h")
+        X_df = self.compute_rolling_var(X_df, "Beta", "1h")
         X_df = self.compute_rolling_var(X_df, "Beta", "20min")
-        X_df = self.compute_rolling_min(X_df, "Beta", "2h")
-        X_df = self.compute_rolling_min(X_df, "Beta", "30min")
+        X_df = self.compute_rolling_var(X_df, "Np", "40min")
+        X_df = self.compute_rolling_var(X_df, "Np_nl", "40min")
+
+        X_df = self.compute_rolling_min(X_df, "By", "30min")
+        X_df = self.compute_rolling_min(X_df, "Bz", "30min")
+        X_df = self.compute_rolling_min(X_df, "By", "30min")
+        X_df = self.compute_rolling_min(X_df, "Na_nl", "30min")
+        X_df = self.compute_rolling_min(X_df, "Vx", "40min")
+        X_df = self.compute_rolling_min(X_df, "Vy", "40min")
+
+        X_df = self.compute_rolling_min(X_df, "By", "2h")
+        X_df = self.compute_rolling_min(X_df, "Bz", "2h")
+        X_df = self.compute_rolling_min(X_df, "By", "2h")
+        X_df = self.compute_rolling_min(X_df, "Na_nl", "2h")
+        X_df = self.compute_rolling_min(X_df, "Vx", "2h")
+        X_df = self.compute_rolling_min(X_df, "Vy", "2h")
+
         X_df = self.compute_rolling_max(X_df, "Beta", "1h")
         X_df = self.compute_rolling_max(X_df, "Beta", "30min")
+        X_df = self.compute_rolling_max(X_df, "B", "40min")
+        X_df = self.compute_rolling_max(X_df, "Np", "40min")
+        X_df = self.compute_rolling_max(X_df, "Np_nl", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 0", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 1", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 10", "40min")
+        X_df = self.compute_rolling_max(X_df, "V", "40min")
+        X_df = self.compute_rolling_max(X_df, "RmsBob", "40min")
+        X_df = self.compute_rolling_max(X_df, "Beta", "2h")
+        X_df = self.compute_rolling_max(X_df, "B", "2h")
+        X_df = self.compute_rolling_max(X_df, "Np", "2h")
+        X_df = self.compute_rolling_max(X_df, "Np_nl", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 0", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 1", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 10", "2h")
+        X_df = self.compute_rolling_max(X_df, "V", "2h")
+        X_df = self.compute_rolling_max(X_df, "RmsBob", "2h")
 
-        for feature in ["Beta_2h_min", "Beta", "RmsBob", "Vx", "Range F 9"]:
+        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_30min_max"]:
             X_df = self.compute_feature_lag(X_df, feature, -1)
             X_df = self.compute_feature_lag(X_df, feature, -5)
             X_df = self.compute_feature_lag(X_df, feature, -10)
@@ -129,6 +199,7 @@ class FeatureExtractor(BaseEstimator):
 
 
 def get_preprocessing():
-    return preprocessing.QuantileTransformer(n_quantiles=100, output_distribution='normal', random_state=1), \
-           preprocessing.StandardScaler(), \
-           preprocessing.MinMaxScaler()
+    return preprocessing.QuantileTransformer(n_quantiles=100, output_distribution='uniform', random_state=1), \
+           preprocessing.RobustScaler(), \
+           preprocessing.MinMaxScaler(),
+

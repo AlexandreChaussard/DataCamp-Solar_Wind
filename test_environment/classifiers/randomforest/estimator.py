@@ -7,11 +7,11 @@ from test_environment.utils import get_preprocessing, FeatureExtractor, Pipeline
 def get_estimator() -> Pipeline:
     feature_extractor = FeatureExtractor()
 
-    classifier = RandomForestClassifier(n_estimators=50,
-                                        max_depth=9,
+    classifier = RandomForestClassifier(n_estimators=80,
                                         criterion='entropy',
+                                        max_features=8,
                                         random_state=1,
-                                        class_weight={0: 1, 1: 1.5})
+                                        class_weight={0: 1, 1: 1.2})
 
     pipe = make_pipeline(
         feature_extractor,

@@ -71,13 +71,46 @@ class FeatureExtractor(BaseEstimator):
 
     def transform(self, X):
         X_df = self.compute_rolling_var(X, "Beta", "2h")
+        X_df = self.compute_rolling_var(X, "Beta", "1h")
         X_df = self.compute_rolling_var(X_df, "Beta", "20min")
-        X_df = self.compute_rolling_min(X_df, "Beta", "2h")
-        X_df = self.compute_rolling_min(X_df, "Beta", "30min")
+        X_df = self.compute_rolling_var(X_df, "Np", "40min")
+        X_df = self.compute_rolling_var(X_df, "Np_nl", "40min")
+
+        X_df = self.compute_rolling_min(X_df, "By", "30min")
+        X_df = self.compute_rolling_min(X_df, "Bz", "30min")
+        X_df = self.compute_rolling_min(X_df, "By", "30min")
+        X_df = self.compute_rolling_min(X_df, "Na_nl", "30min")
+        X_df = self.compute_rolling_min(X_df, "Vx", "40min")
+        X_df = self.compute_rolling_min(X_df, "Vy", "40min")
+
+        X_df = self.compute_rolling_min(X_df, "By", "2h")
+        X_df = self.compute_rolling_min(X_df, "Bz", "2h")
+        X_df = self.compute_rolling_min(X_df, "By", "2h")
+        X_df = self.compute_rolling_min(X_df, "Na_nl", "2h")
+        X_df = self.compute_rolling_min(X_df, "Vx", "2h")
+        X_df = self.compute_rolling_min(X_df, "Vy", "2h")
+
         X_df = self.compute_rolling_max(X_df, "Beta", "1h")
         X_df = self.compute_rolling_max(X_df, "Beta", "30min")
+        X_df = self.compute_rolling_max(X_df, "B", "40min")
+        X_df = self.compute_rolling_max(X_df, "Np", "40min")
+        X_df = self.compute_rolling_max(X_df, "Np_nl", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 0", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 1", "40min")
+        X_df = self.compute_rolling_max(X_df, "Range F 10", "40min")
+        X_df = self.compute_rolling_max(X_df, "V", "40min")
+        X_df = self.compute_rolling_max(X_df, "RmsBob", "40min")
+        X_df = self.compute_rolling_max(X_df, "Beta", "2h")
+        X_df = self.compute_rolling_max(X_df, "B", "2h")
+        X_df = self.compute_rolling_max(X_df, "Np", "2h")
+        X_df = self.compute_rolling_max(X_df, "Np_nl", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 0", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 1", "2h")
+        X_df = self.compute_rolling_max(X_df, "Range F 10", "2h")
+        X_df = self.compute_rolling_max(X_df, "V", "2h")
+        X_df = self.compute_rolling_max(X_df, "RmsBob", "2h")
 
-        for feature in ["Beta_2h_min", "Beta", "RmsBob", "Vx", "Range F 9"]:
+        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_30min_max"]:
             X_df = self.compute_feature_lag(X_df, feature, -1)
             X_df = self.compute_feature_lag(X_df, feature, -5)
             X_df = self.compute_feature_lag(X_df, feature, -10)
@@ -95,21 +128,67 @@ def get_preprocessing():
            preprocessing.MinMaxScaler()
 
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
+
+
+class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
+
+    def __init__(self, random_state=None):
+        self.models = []
+        self.random_state = random_state
+        self.add_xgboost(
+            weight_minority_class=1,
+            max_depth=4
+        )
+        self.add_xgboost(
+            weight_minority_class=3,
+            max_depth=2
+        )
+
+    def add_xgboost(self, weight_minority_class=1.6, max_depth=2, learning_rate=10e-2):
+        classifier = HistGradientBoostingClassifier(max_iter=200,
+                                                    loss='log_loss',
+                                                    max_depth=max_depth,
+                                                    learning_rate=learning_rate,
+                                                    l2_regularization=1,
+                                                    early_stopping=True,
+                                                    validation_fraction=0.5,
+                                                    tol=10e-3,
+                                                    class_weight={0: 1, 1: weight_minority_class},
+                                                    random_state=self.random_state)
+        self.models.append(classifier)
+
+    def fit(self, X, y, sample_weight=None):
+        for model in self.models:
+            model.fit(X, y)
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict_proba(self, X):
+        probas = np.zeros((X.shape[0], len(self.classes_)))
+
+        for model in self.models:
+            predictions = model.predict_proba(X)
+            for c in range(len(self.classes_)):
+                probas[:, c] += predictions[:, c] / len(self.models)
+
+        probas = probas / probas.sum(axis=1)[:, np.newaxis]
+        return probas
+
+    def predict(self, X):
+        return np.argmax(self.predict_proba(X), axis=1)
 
 
 def get_estimator() -> Pipeline:
     feature_extractor = FeatureExtractor()
 
-    classifier = RandomForestClassifier(n_estimators=50,
-                                        max_depth=9,
-                                        criterion='entropy',
-                                        random_state=1,
-                                        class_weight={0: 1, 1: 1.5})
+    classifier = EnsembleClassifier()
 
     pipe = make_pipeline(
         feature_extractor,
         *get_preprocessing(),
         classifier
     )
+
     return pipe
