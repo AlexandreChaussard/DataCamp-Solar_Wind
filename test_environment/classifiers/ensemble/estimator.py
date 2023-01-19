@@ -4,30 +4,38 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from test_environment.utils import get_preprocessing, FeatureExtractor, Pipeline
 from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 import numpy as np
+import pandas as pd
 
 
 class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
 
-    def __init__(self, random_state=None):
+    def __init__(self, moving_avg=6, smoothing_threshold=0.5, random_state=None):
         self.models = []
         self.random_state = random_state
+        self.moving_avg = moving_avg
+        self.smoothing_threshold = smoothing_threshold
         self.add_xgboost(
             weight_minority_class=1,
             max_depth=4,
             validation_fraction=0.1,
         )
         self.add_xgboost(
-            weight_minority_class=3,
-            max_depth=2,
-            validation_fraction=0.5,
+            weight_minority_class=2.1,
+            max_depth=4,
+            validation_fraction=0.4,
+        )
+        self.add_xgboost(
+            weight_minority_class=2.8,
+            max_depth=4,
+            validation_fraction=0.1,
         )
 
-    def add_xgboost(self, weight_minority_class=2, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
+    def add_xgboost(self, weight_minority_class=2.0, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
         classifier = HistGradientBoostingClassifier(max_iter=200,
                                                     loss='log_loss',
                                                     max_depth=max_depth,
                                                     learning_rate=learning_rate,
-                                                    l2_regularization=1,
+                                                    l2_regularization=2,
                                                     early_stopping=True,
                                                     validation_fraction=validation_fraction,
                                                     tol=10e-3,
@@ -53,13 +61,17 @@ class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return probas
 
     def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
+        predictions = np.argmax(self.predict_proba(X), axis=1)
+        predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
+        predictions[predictions > self.smoothing_threshold] = 1
+        predictions[predictions <= self.smoothing_threshold] = 0
+        return predictions
 
 
 def get_estimator() -> Pipeline:
     feature_extractor = FeatureExtractor()
 
-    classifier = EnsembleClassifier()
+    classifier = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.7)
 
     pipe = make_pipeline(
         feature_extractor,

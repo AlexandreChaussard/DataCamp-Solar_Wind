@@ -253,12 +253,17 @@ class FeatureExtractor(BaseEstimator):
 
         return X_df
 
-    def transform(self, X):
+    def transform(self, X: pd.DataFrame):
         import warnings
         warnings.filterwarnings('ignore')
         print("               [*] Preprocessing data")
 
-        X_df = X
+        X_early = X.copy(deep=True)
+        X_middle = X.copy(deep=True)
+        X_end = X.copy(deep=True)
+
+        early = "5h"
+        end = "80h"
 
         smoothed_columns = ["Beta", "RmsBob", "B", "V"]
         print(f"               - Smooth features: {smoothed_columns}")
@@ -270,14 +275,6 @@ class FeatureExtractor(BaseEstimator):
         X_df = self.compute_derivative(X_df, 'Bx')
         X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
         X_df = self.compute_ratio_pression_vitesse_plasma(X_df)
-
-        if False:
-            print("               - Counting peaks and height")
-            X_df = self.compute_rolling_count_peaks(X_df, "Pdyn", time_window="2h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="2h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="20h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="50h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="100h")
 
 
         print("               - Rolling variance")

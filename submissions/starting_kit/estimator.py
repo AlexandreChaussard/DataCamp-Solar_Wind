@@ -1,5 +1,6 @@
 # General imports
 from sklearn import preprocessing
+import sklearn.impute as impute
 from sklearn.pipeline import Pipeline
 import pandas as pd
 import numpy as np
@@ -112,14 +113,14 @@ class FeatureExtractor(BaseEstimator):
             peaks, attributes = signal.find_peaks(window)
             number_peaks[i] = len(peaks)
             i += 1
-        X_df.insert(1, name, number_peaks)
+        X_df[name] = number_peaks
         X_df = self.fill_missing_values(X_df, name, feature)
         return X_df
 
     def compute_rolling_energy(self, X_df: pd.DataFrame, feature, time_window):
         name = "_".join([feature, time_window, f"energy"])
         squared_values = X_df[feature].apply(lambda x: x ** 2)
-        X_df.insert(1, name, squared_values.rolling(time_window, center=True).sum())
+        X_df[name] = squared_values.rolling(time_window, center=True).sum()
         X_df = self.fill_missing_values(X_df, name, feature)
         return X_df
 
@@ -137,14 +138,14 @@ class FeatureExtractor(BaseEstimator):
         for value in rolling_values:
             entropy[i] = stats.entropy(value)
             i += 1
-        X_df.insert(1, name, entropy)
+        X_df[name] = entropy
         X_df = self.fill_missing_values(X_df, name, feature)
         return X_df
 
     def compute_cwt(self, X_df: pd.DataFrame, feature, width):
         name = "_".join([feature, "cwt", f"{width}"])
         values = signal.cwt(X_df[feature].values, signal.ricker, np.array([width])).reshape(-1)
-        X_df.insert(1, name, values)
+        X_df[name] = values
         X_df = self.fill_missing_values(X_df, name, feature)
         return X_df
 
@@ -157,19 +158,40 @@ class FeatureExtractor(BaseEstimator):
             values = np.imag(fft_transform)
         else:
             values = np.abs(fft_transform)
-        X_df.insert(1, name, values)
+        X_df[name] = values
         X_df = self.fill_missing_values(X_df, name, feature)
-        return X_df
-
-    def denoise(self, X_df: pd.DataFrame, feature, threshold):
-        fft_transform = np.fft.fft(X_df[feature].values)
-        fft_transform[fft_transform < threshold] = 0
-        denoised = np.fft.ifft(fft_transform)
-        X_df[feature] = denoised
         return X_df
 
     def compute_ratio_pression_magnetique_plasma(self, X_df: pd.DataFrame):
         X_df['PMP_Ratio'] = X_df['Beta'] / X_df['Pdyn']
+        return X_df
+
+    def compute_ratio_pression_vitesse_plasma(self, X_df: pd.DataFrame):
+        X_df['PVP_Ratio'] = X_df['V'] / X_df['Pdyn']
+        return X_df
+
+    def compute_derivative(self, X_df: pd.DataFrame, feature):
+        name = "_".join([feature, "derivative"])
+        X_df[name] = X_df[feature].diff() / X_df.index.to_series().diff().dt.total_seconds()
+        return X_df
+
+    def compute_polynomial_2(self, X_df: pd.DataFrame, feature, ignore_same=False):
+        if "_poly_" in feature:
+            return X_df
+
+        for other_feature in X_df.columns:
+            name = "_".join([feature, "poly", other_feature])
+            other_name = "_".join([other_feature, "poly", feature])
+
+            if "_poly_" in other_feature:
+                continue
+            if ignore_same and feature == other_feature:
+                continue
+            if name in X_df.columns or other_name in X_df.columns:
+                continue
+
+            X_df[name] = X_df[feature] * X_df[other_feature]
+
         return X_df
 
     def drop_columns(self, X_df: pd.DataFrame, dropped_columns):
@@ -193,7 +215,8 @@ class FeatureExtractor(BaseEstimator):
         return X_df
 
     def transform(self, X):
-
+        import warnings
+        warnings.filterwarnings('ignore')
         print("               [*] Preprocessing data")
 
         X_df = X
@@ -201,77 +224,48 @@ class FeatureExtractor(BaseEstimator):
         smoothed_columns = ["Beta", "RmsBob", "B", "V"]
         print(f"               - Smooth features: {smoothed_columns}")
         for feature in smoothed_columns:
-            X_df = self.smooth(X_df, feature, time_window="1h20min", center=False)
+            X_df = self.smooth(X_df, feature, time_window="1h", center=False)
 
+        print(f"               - Computing special parameters")
+        X_df = self.compute_derivative(X_df, 'Beta')
+        X_df = self.compute_derivative(X_df, 'Bx')
         X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
-
-        """
-        X_df = self.drop_all_else_columns(X_df, [
-            'Beta',
-            'By',
-            'Bz',
-            'Np',
-            'Np_nl',
-            'Na_nl',
-            'Vx',
-            'Vy',
-            'B',
-            'V',
-            'RmsBob',
-            'Range F 0',
-            'Range F 1',
-            'Range F 10',
-            'Range F 9'
-        ])
-        """
+        X_df = self.compute_ratio_pression_vitesse_plasma(X_df)
 
         print("               - Counting peaks and height")
         X_df = self.compute_rolling_count_peaks(X_df, "Pdyn", time_window="2h")
         X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="2h")
+        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="20h")
+        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="50h")
+        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="100h")
+
 
         print("               - Rolling variance")
-        X_df = self.compute_rolling_var(X_df, "Beta", "2h")
-        X_df = self.compute_rolling_var(X_df, "Beta", "1h")
-        X_df = self.compute_rolling_var(X_df, "Beta", "20min")
-        X_df = self.compute_rolling_var(X_df, "Np", "40min")
-        X_df = self.compute_rolling_var(X_df, "Np_nl", "40min")
+        tabular = ["Beta", "Np", "Np_nl"]
+        for feature in tabular:
+            X_df = self.compute_rolling_var(X_df, feature, "1h")
+            X_df = self.compute_rolling_var(X_df, feature, "5h")
+            X_df = self.compute_rolling_var(X_df, feature, "20h")
+            X_df = self.compute_rolling_var(X_df, feature, "50h")
+            X_df = self.compute_rolling_var(X_df, feature, "100h")
 
         print("               - Rolling min")
-        X_df = self.compute_rolling_min(X_df, "By", "30min")
-        X_df = self.compute_rolling_min(X_df, "Bz", "30min")
-        X_df = self.compute_rolling_min(X_df, "By", "30min")
-        X_df = self.compute_rolling_min(X_df, "Na_nl", "30min")
-        X_df = self.compute_rolling_min(X_df, "Vx", "40min")
-        X_df = self.compute_rolling_min(X_df, "Vy", "40min")
-        X_df = self.compute_rolling_min(X_df, "By", "2h")
-        X_df = self.compute_rolling_min(X_df, "Bz", "2h")
-        X_df = self.compute_rolling_min(X_df, "By", "2h")
-        X_df = self.compute_rolling_min(X_df, "Na_nl", "2h")
-        X_df = self.compute_rolling_min(X_df, "Vx", "2h")
-        X_df = self.compute_rolling_min(X_df, "Vy", "2h")
-        X_df = self.compute_rolling_min(X_df, "Pdyn", "2h")
+        tabular = ["Beta", "B", "By", "Bz", "Na_nl", "Vx", "PMP_Ratio"]
+        for feature in tabular:
+            X_df = self.compute_rolling_min(X_df, feature, "1h")
+            X_df = self.compute_rolling_min(X_df, feature, "5h")
+            X_df = self.compute_rolling_min(X_df, feature, "15h")
+            X_df = self.compute_rolling_min(X_df, feature, "50h")
+            X_df = self.compute_rolling_min(X_df, feature, "100h")
 
         print("               - Rolling max")
-        X_df = self.compute_rolling_max(X_df, "Beta", "1h")
-        X_df = self.compute_rolling_max(X_df, "Beta", "30min")
-        X_df = self.compute_rolling_max(X_df, "B", "40min")
-        X_df = self.compute_rolling_max(X_df, "Np", "40min")
-        X_df = self.compute_rolling_max(X_df, "Np_nl", "40min")
-        X_df = self.compute_rolling_max(X_df, "Range F 0", "40min")
-        X_df = self.compute_rolling_max(X_df, "Range F 1", "40min")
-        X_df = self.compute_rolling_max(X_df, "Range F 10", "40min")
-        X_df = self.compute_rolling_max(X_df, "V", "40min")
-        X_df = self.compute_rolling_max(X_df, "RmsBob", "40min")
-        X_df = self.compute_rolling_max(X_df, "Beta", "2h")
-        X_df = self.compute_rolling_max(X_df, "B", "2h")
-        X_df = self.compute_rolling_max(X_df, "Np", "2h")
-        X_df = self.compute_rolling_max(X_df, "Np_nl", "2h")
-        X_df = self.compute_rolling_max(X_df, "Range F 0", "2h")
-        X_df = self.compute_rolling_max(X_df, "Range F 1", "2h")
-        X_df = self.compute_rolling_max(X_df, "Range F 10", "2h")
-        X_df = self.compute_rolling_max(X_df, "V", "2h")
-        X_df = self.compute_rolling_max(X_df, "Vth", "2h")
-        X_df = self.compute_rolling_max(X_df, "RmsBob", "2h")
+        tabular = ["Beta", "B", "Np", "Np_nl", "Range F 0", "Range F 1", "Range F 10", "V", "Vth", "RmsBob"]
+        for feature in tabular:
+            X_df = self.compute_rolling_max(X_df, feature, "1h")
+            X_df = self.compute_rolling_max(X_df, feature, "5h")
+            X_df = self.compute_rolling_max(X_df, feature, "23h")
+            X_df = self.compute_rolling_max(X_df, feature, "50h")
+            X_df = self.compute_rolling_max(X_df, feature, "100h")
 
         print("               - CWT")
         X_df = self.compute_cwt(X_df, "Beta", width=20)
@@ -298,67 +292,67 @@ class FeatureExtractor(BaseEstimator):
         X_df = self.compute_rolling_median(X_df, "Vth", time_window="2h")
 
         print("               - Time lags")
-        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_30min_max"]:
+        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_1h_max"]:
             X_df = self.compute_feature_lag(X_df, feature, -1)
             X_df = self.compute_feature_lag(X_df, feature, -5)
             X_df = self.compute_feature_lag(X_df, feature, -10)
             X_df = self.compute_feature_lag(X_df, feature, -20)
+            X_df = self.compute_feature_lag(X_df, feature, -50)
+            X_df = self.compute_feature_lag(X_df, feature, -100)
             X_df = self.compute_feature_lag(X_df, feature, 1)
             X_df = self.compute_feature_lag(X_df, feature, 5)
             X_df = self.compute_feature_lag(X_df, feature, 10)
             X_df = self.compute_feature_lag(X_df, feature, 20)
+            X_df = self.compute_feature_lag(X_df, feature, 50)
+            X_df = self.compute_feature_lag(X_df, feature, 100)
 
-        columns = ['Beta_cwt_20', 'Range F 11', 'Range F 7', 'Pdyn_2h_peaks_count', 'Beta_cwt_10', 'Vth',
-                   'Vth_2h_energy', 'RmsBob_20', 'B', 'RmsBob_-20', 'RmsBob_10', 'RmsBob_-10', 'Beta_cwt_2', 'RmsBob_5',
-                   'RmsBob_-5', 'RmsBob_1', 'Beta_20min_var', 'RmsBob', 'RmsBob_-1', 'Na_nl_30min_min', 'By_30min_min',
-                   'Bz_30min_min', 'Beta_1h_var', 'Beta_20', 'Beta_2h_var', 'Beta_-20', 'Beta_10', 'Beta_-10',
-                   'PMP_Ratio', 'Beta_5', 'Beta_-5', 'Range F 11_2h_mean', 'Beta_1', 'Beta', 'Beta_-1', 'Vth_2h_mean',
-                   'Beta_2h_energy', 'Vth_2h_q0.7', 'Pdyn_2h_peaks_height', 'Range F 11_2h_q0.2', 'Beta_30min_max_20',
-                   'Beta_30min_max_-20', 'Beta_30min_max_10', 'Vx_40min_min', 'V_40min_max', 'Np_nl_40min_max',
-                   'Beta_30min_max_-10', 'Beta_30min_max_5', 'B_40min_max', 'Np_40min_max', 'Beta_30min_max_-5',
-                   'Beta_30min_max_1', 'Beta_30min_max', 'Beta_30min_max_-1', 'Vth_2h_q0.1', 'Range F 10_40min_max',
-                   'Vy_40min_min', 'Range F 1_40min_max', 'Beta_2h_q0.7', 'Range F 0_40min_max', 'RmsBob_2h_q0.1',
-                   'Beta_2h_q0.2', 'Beta_2h_q0.9', 'RmsBob_40min_max', 'B_2h_max', 'Np_nl_2h_max', 'Vx_2h_min',
-                   'V_2h_max', 'Na_nl_2h_min', 'Np_2h_max', 'Range F 10_2h_max', 'By_2h_min', 'Bz_2h_min', 'Vth_2h_max',
-                   'Vy_2h_min', 'Beta_1h_max', 'Range F 1_2h_max', 'Beta_2h_max', 'Range F 0_2h_max', 'RmsBob_2h_max']
-        print("               - Limiting columns")
-        X_df = X_df[columns]
+        print("               - Filling missing values")
+        X_df = X_df.fillna(method='ffill').fillna(method='bfill')
+
+        print("               [*] Done! Running a few last filters and fitting/predicting...")
+
 
         return X_df
 
 
 def get_preprocessing():
-    return preprocessing.QuantileTransformer(n_quantiles=100, output_distribution='uniform', random_state=1), \
-           preprocessing.RobustScaler(), \
-           preprocessing.MinMaxScaler(),
+    return preprocessing.StandardScaler(), preprocessing.MinMaxScaler()
 
 
+from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 
 
 class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
 
-    def __init__(self, random_state=None):
+    def __init__(self, moving_avg=6, smoothing_threshold=0.5, random_state=None):
         self.models = []
         self.random_state = random_state
+        self.moving_avg = moving_avg
+        self.smoothing_threshold = smoothing_threshold
         self.add_xgboost(
             weight_minority_class=1,
             max_depth=4,
             validation_fraction=0.1,
         )
         self.add_xgboost(
-            weight_minority_class=3,
-            max_depth=2,
-            validation_fraction=0.5,
+            weight_minority_class=2.1,
+            max_depth=4,
+            validation_fraction=0.4,
+        )
+        self.add_xgboost(
+            weight_minority_class=2.8,
+            max_depth=4,
+            validation_fraction=0.1,
         )
 
-    def add_xgboost(self, weight_minority_class=2, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
+    def add_xgboost(self, weight_minority_class=2.0, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
         classifier = HistGradientBoostingClassifier(max_iter=200,
                                                     loss='log_loss',
                                                     max_depth=max_depth,
                                                     learning_rate=learning_rate,
-                                                    l2_regularization=1,
+                                                    l2_regularization=2,
                                                     early_stopping=True,
                                                     validation_fraction=validation_fraction,
                                                     tol=10e-3,
@@ -384,13 +378,17 @@ class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         return probas
 
     def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
+        predictions = np.argmax(self.predict_proba(X), axis=1)
+        predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
+        predictions[predictions > self.smoothing_threshold] = 1
+        predictions[predictions <= self.smoothing_threshold] = 0
+        return predictions
 
 
 def get_estimator() -> Pipeline:
     feature_extractor = FeatureExtractor()
 
-    classifier = EnsembleClassifier()
+    classifier = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.7)
 
     pipe = make_pipeline(
         feature_extractor,
@@ -398,3 +396,4 @@ def get_estimator() -> Pipeline:
         classifier
     )
     return pipe
+

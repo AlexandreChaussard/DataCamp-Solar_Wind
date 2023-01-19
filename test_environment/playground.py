@@ -6,6 +6,8 @@ import test_environment.classifiers.baggingclassifier.estimator as bagging
 import test_environment.classifiers.gradientboosting.estimator as gradientboosting
 import test_environment.classifiers.cnn.estimator as cnn
 import test_environment.classifiers.ensemble.estimator as ensemble
+import test_environment.classifiers.xgboost.estimator as xgboost
+import test_environment.classifiers.mlp.estimator as mlp
 
 # Fetching data
 data_train, label_train, data_test, label_test = fetch_data(1)
@@ -22,6 +24,10 @@ data = (data_train, label_train, data_test, label_test)
 # run_estimator(current.get_estimator(memory=10, characteristic_storm_duration=3, residual=0.6), "Markov XGBoost", *data)
 
 run_estimator(ensemble.get_estimator(), "Custom Ensemble", *data)
+
+# run_estimator(xgboost.get_estimator(), "XGBoost", *data)
+
+# run_estimator(mlp.get_estimator(), "Neural network", *data)
 
 # memory = 20
 # for memory in [10]:
