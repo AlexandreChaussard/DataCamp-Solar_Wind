@@ -22,7 +22,7 @@ class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
             validation_fraction=0.5,
         )
 
-    def add_xgboost(self, weight_minority_class=1.6, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
+    def add_xgboost(self, weight_minority_class=2, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
         classifier = HistGradientBoostingClassifier(max_iter=200,
                                                     loss='log_loss',
                                                     max_depth=max_depth,
@@ -66,5 +66,4 @@ def get_estimator() -> Pipeline:
         *get_preprocessing(),
         classifier
     )
-
     return pipe
