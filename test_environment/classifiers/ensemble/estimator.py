@@ -1,13 +1,19 @@
+from test_environment.utils import get_preprocessing, FeatureExtractor, Pipeline
+from test_environment.feature_extractor import FeatureExtractor_ElasticMemory
+
 from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from test_environment.utils import get_preprocessing, FeatureExtractor, Pipeline
 from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 import numpy as np
 import pandas as pd
 
 
 class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
+    """
+    This classifier is an ensemble learning ecosystem made of different XGBoost that have different weighting on
+    each classes. So hopefully their differences make the model more accurate in the end.
+    """
 
     def __init__(self, moving_avg=6, smoothing_threshold=0.5, random_state=None):
         self.models = []
@@ -69,9 +75,13 @@ class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
 
 
 def get_estimator() -> Pipeline:
-    feature_extractor = FeatureExtractor()
+    # feature_extractor = FeatureExtractor()
+    feature_extractor = FeatureExtractor_ElasticMemory(
+        memories=["1h", "3h", "5h", "12h", "22h", "33h", "50h", "70h", "100h"],
+        timelags=[1, 5, 10, 20, 50, 100, 300, 800, 1500, -1, -5, -10, -20, -50, -100, -300, -800, -1500]
+    )
 
-    classifier = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.7)
+    classifier = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.4)
 
     pipe = make_pipeline(
         feature_extractor,

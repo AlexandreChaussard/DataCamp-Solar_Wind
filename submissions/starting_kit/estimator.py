@@ -15,15 +15,7 @@ from scipy import stats
 # Model imports
 
 
-class FeatureExtractor(BaseEstimator):
-
-    def __init__(self):
-        super().__init__()
-        self.n_features = 33 + 11
-
-    def fit(self, X, y):
-        return self
-
+class FeatureComputer:
     def smooth(self, X_df: pd.DataFrame, feature, time_window, center=False):
         X_df[feature] = X_df[feature].rolling(time_window, center=center).mean()
         return X_df
@@ -204,119 +196,136 @@ class FeatureExtractor(BaseEstimator):
                 X_df = self.drop_columns(X_df, [feature])
         return X_df
 
-    def transform_new(self, X):
 
-        print("             [*] Preprocessing data")
+class FeatureExtractor_ElasticMemory:
+    """
+    This class is about extracting features with a given memory in time.
+    The idea is that I'm gonna feed models with different memory sizes in order to get the most sense out of
+    different areas in time.
 
-        columns = ["Beta", ]
-        print(f"               - Reducing columns to {columns}")
-        X_df = X["Beta"]
+    The obtained models should be different enough so I can consider a larger "ensemble learning" strategy.
+    Then I'm gonna use an aggregation in their probability outputs, and hopefully I'll get the best out of each model.
+    """
+    def __init__(self, memories, timelags):
+        self.memories = memories
+        self.timelags = timelags
 
-        return X_df
+    def fit(self, X, y):
+        return self
 
-    def transform(self, X):
+    def transform(self, X: pd.DataFrame):
         import warnings
         warnings.filterwarnings('ignore')
-        print("               [*] Preprocessing data")
 
-        X_df = X
+        fc = FeatureComputer()
 
-        smoothed_columns = ["Beta", "RmsBob", "B", "V"]
-        print(f"               - Smooth features: {smoothed_columns}")
-        for feature in smoothed_columns:
-            X_df = self.smooth(X_df, feature, time_window="1h", center=False)
+        print(f"               [*] Preprocessing data with memories: {self.memories}")
+
+        X_df = X.copy(deep=True)
 
         print(f"               - Computing special parameters")
-        X_df = self.compute_derivative(X_df, 'Beta')
-        X_df = self.compute_derivative(X_df, 'Bx')
-        X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
-        X_df = self.compute_ratio_pression_vitesse_plasma(X_df)
+        X_df = fc.compute_derivative(X_df, 'Beta')
+        X_df = fc.compute_derivative(X_df, 'Bx')
+        X_df = fc.compute_derivative(X_df, 'Range F 10')
+        X_df = fc.compute_derivative(X_df, 'V')
+        X_df = fc.compute_derivative(X_df, 'Vth')
 
-        print("               - Counting peaks and height")
-        X_df = self.compute_rolling_count_peaks(X_df, "Pdyn", time_window="2h")
-        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="2h")
-        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="20h")
-        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="50h")
-        X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="100h")
-
+        print("               - Rolling mean")
+        for memory in self.memories:
+            X_df = fc.compute_rolling_mean(X_df, 'V_derivative', memory)
+            X_df = fc.compute_rolling_mean(X_df, 'Vth_derivative', memory)
+            X_df = fc.compute_rolling_mean(X_df, 'Beta', memory)
 
         print("               - Rolling variance")
-        tabular = ["Beta", "Np", "Np_nl"]
+        tabular = [
+            "Beta",
+            "Np",
+            "Np_nl",
+            "Range F 0",
+            "Range F 1",
+            "Range F 10",
+            "Range F 11",
+            "Range F 12",
+            "Range F 13",
+            "Range F 2",
+            "Range F 3",
+            "Range F 4",
+            "Range F 5",
+            "Range F 6",
+            "Range F 7",
+            "Range F 8",
+            "Range F 9"
+        ]
         for feature in tabular:
-            X_df = self.compute_rolling_var(X_df, feature, "1h")
-            X_df = self.compute_rolling_var(X_df, feature, "5h")
-            X_df = self.compute_rolling_var(X_df, feature, "20h")
-            X_df = self.compute_rolling_var(X_df, feature, "50h")
-            X_df = self.compute_rolling_var(X_df, feature, "100h")
+            for memory in self.memories:
+                X_df = fc.compute_rolling_var(X_df, feature, memory)
 
         print("               - Rolling min")
-        tabular = ["Beta", "B", "By", "Bz", "Na_nl", "Vx", "PMP_Ratio"]
+        tabular = [
+            "Beta",
+            "B",
+            "By",
+            "Bz",
+            "Na_nl",
+            "Vx",
+            "Range F 10",
+            "Range F 10_derivative"
+        ]
         for feature in tabular:
-            X_df = self.compute_rolling_min(X_df, feature, "1h")
-            X_df = self.compute_rolling_min(X_df, feature, "5h")
-            X_df = self.compute_rolling_min(X_df, feature, "15h")
-            X_df = self.compute_rolling_min(X_df, feature, "50h")
-            X_df = self.compute_rolling_min(X_df, feature, "100h")
+            for memory in self.memories:
+                X_df = fc.compute_rolling_min(X_df, feature, memory)
 
         print("               - Rolling max")
-        tabular = ["Beta", "B", "Np", "Np_nl", "Range F 0", "Range F 1", "Range F 10", "V", "Vth", "RmsBob"]
+        tabular = [
+            "Beta",
+            "B",
+            "Np",
+            "Np_nl",
+            "Range F 10",
+            "Range F 10_derivative",
+            "Range F 11",
+            "Range F 12",
+            "Range F 13",
+            "V",
+            "Vth",
+            "RmsBob"
+        ]
         for feature in tabular:
-            X_df = self.compute_rolling_max(X_df, feature, "1h")
-            X_df = self.compute_rolling_max(X_df, feature, "5h")
-            X_df = self.compute_rolling_max(X_df, feature, "23h")
-            X_df = self.compute_rolling_max(X_df, feature, "50h")
-            X_df = self.compute_rolling_max(X_df, feature, "100h")
+            for memory in self.memories:
+                X_df = fc.compute_rolling_max(X_df, feature, memory)
 
         print("               - CWT")
-        X_df = self.compute_cwt(X_df, "Beta", width=20)
-        X_df = self.compute_cwt(X_df, "Beta", width=10)
-        X_df = self.compute_cwt(X_df, "Beta", width=2)
-        X_df = self.compute_cwt(X_df, "Vth", width=20)
+        X_df = fc.compute_cwt(X_df, "Beta", width=5)
+        X_df = fc.compute_cwt(X_df, "Beta", width=2)
+        X_df = fc.compute_cwt(X_df, "Vth", width=5)
 
         print("               - Rolling quantile")
-        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
-        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.7)
-        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.2)
-        X_df = self.compute_rolling_quantile(X_df, "Range F 11", time_window="2h", quantile=0.2)
-        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
-        X_df = self.compute_rolling_quantile(X_df, "RmsBob", time_window="2h", quantile=0.1)
-        X_df = self.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.7)
-        X_df = self.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.1)
-
-        print("               - Rolling energy")
-        X_df = self.compute_rolling_energy(X_df, "Beta", time_window="2h")
-        X_df = self.compute_rolling_energy(X_df, "Vth", time_window="2h")
+        for memory in self.memories:
+            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.9)
+            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.7)
+            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.2)
+            X_df = fc.compute_rolling_quantile(X_df, "Range F 10", time_window=memory, quantile=0.2)
+            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.9)
+            X_df = fc.compute_rolling_quantile(X_df, "RmsBob", time_window=memory, quantile=0.1)
+            X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window=memory, quantile=0.7)
+            X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window=memory, quantile=0.1)
 
         print("               - Rolling median")
-        X_df = self.compute_rolling_median(X_df, "Range F 11", time_window="2h")
-        X_df = self.compute_rolling_median(X_df, "Vth", time_window="2h")
+        for memory in self.memories:
+            X_df = fc.compute_rolling_median(X_df, "Range F 11", time_window=memory)
+            X_df = fc.compute_rolling_median(X_df, "Vth", time_window=memory)
 
         print("               - Time lags")
-        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_1h_max"]:
-            X_df = self.compute_feature_lag(X_df, feature, -1)
-            X_df = self.compute_feature_lag(X_df, feature, -5)
-            X_df = self.compute_feature_lag(X_df, feature, -10)
-            X_df = self.compute_feature_lag(X_df, feature, -20)
-            X_df = self.compute_feature_lag(X_df, feature, -50)
-            X_df = self.compute_feature_lag(X_df, feature, -100)
-            X_df = self.compute_feature_lag(X_df, feature, 1)
-            X_df = self.compute_feature_lag(X_df, feature, 5)
-            X_df = self.compute_feature_lag(X_df, feature, 10)
-            X_df = self.compute_feature_lag(X_df, feature, 20)
-            X_df = self.compute_feature_lag(X_df, feature, 50)
-            X_df = self.compute_feature_lag(X_df, feature, 100)
+        for feature in ["Beta", "RmsBob", "Vx", "Range F 9"]:
+            for time_lag in self.timelags:
+                X_df = fc.compute_feature_lag(X_df, feature, time_lag)
 
         print("               - Filling missing values")
         X_df = X_df.fillna(method='ffill').fillna(method='bfill')
 
-        print("               [*] Done! Running a few last filters and fitting/predicting...")
-
+        print("               [*] Ready to enter the classifier")
 
         return X_df
-
-
-def get_preprocessing():
-    return preprocessing.StandardScaler(), preprocessing.MinMaxScaler()
 
 
 from sklearn.pipeline import make_pipeline
@@ -325,6 +334,10 @@ from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 
 
 class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
+    """
+    This classifier is an ensemble learning ecosystem made of different XGBoost that have different weighting on
+    each classes. So hopefully their differences make the model more accurate in the end.
+    """
 
     def __init__(self, moving_avg=6, smoothing_threshold=0.5, random_state=None):
         self.models = []
@@ -384,16 +397,125 @@ class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
         predictions[predictions <= self.smoothing_threshold] = 0
         return predictions
 
+class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
+    """
+    This classifier is an ensemble learning ecosystem made of different XGBoost that have different weighting on
+    each classes. So hopefully their differences make the model more accurate in the end.
+    """
+
+    def __init__(
+            self,
+            short_memory_extractor,
+            medium_memory_extractor,
+            long_memory_extractor,
+            moving_avg=6,
+            smoothing_threshold=0.5,
+            random_state=None
+    ):
+        self.random_state = random_state
+
+        self.short_memory_pipe = short_memory_extractor
+        self.medium_memory_pipe = medium_memory_extractor
+        self.long_memory_pipe = long_memory_extractor
+
+        self.short_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.4)
+        self.medium_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.4)
+        self.long_memory_model = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.4)
+
+        self.short_memory_standardizer = preprocessing.StandardScaler()
+        self.medium_memory_standardizer = preprocessing.StandardScaler()
+        self.long_memory_standardizer = preprocessing.StandardScaler()
+        self.short_memory_scaler = preprocessing.MinMaxScaler()
+        self.medium_memory_scaler = preprocessing.MinMaxScaler()
+        self.long_memory_scaler = preprocessing.MinMaxScaler()
+
+
+        self.moving_avg = moving_avg
+        self.smoothing_threshold = smoothing_threshold
+
+    def fit(self, X, y, sample_weight=None):
+
+        X_short_memory = self.short_memory_pipe.transform(X)
+        X_medium_memory = self.medium_memory_pipe.transform(X)
+        X_long_memory = self.long_memory_pipe.transform(X)
+
+        X_short_memory = self.short_memory_standardizer.fit_transform(X_short_memory, y)
+        X_medium_memory = self.medium_memory_standardizer.fit_transform(X_medium_memory, y)
+        X_long_memory = self.long_memory_standardizer.fit_transform(X_long_memory, y)
+        X_short_memory = self.short_memory_scaler.fit_transform(X_short_memory, y)
+        X_medium_memory = self.medium_memory_scaler.fit_transform(X_medium_memory, y)
+        X_long_memory = self.long_memory_scaler.fit_transform(X_long_memory, y)
+
+        print("[*] Fitting memory estimator...")
+
+        self.short_memory_model = self.short_memory_model.fit(X_short_memory, y)
+        self.medium_memory_model = self.medium_memory_model.fit(X_medium_memory, y)
+        self.long_memory_model = self.long_memory_model.fit(X_long_memory, y)
+
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict_proba(self, X):
+        X_short_memory = self.short_memory_pipe.transform(X)
+        X_medium_memory = self.medium_memory_pipe.transform(X)
+        X_long_memory = self.long_memory_pipe.transform(X)
+
+        X_short_memory = self.short_memory_standardizer.transform(X_short_memory)
+        X_medium_memory = self.medium_memory_standardizer.transform(X_medium_memory)
+        X_long_memory = self.long_memory_standardizer.transform(X_long_memory)
+        X_short_memory = self.short_memory_scaler.transform(X_short_memory)
+        X_medium_memory = self.medium_memory_scaler.transform(X_medium_memory)
+        X_long_memory = self.long_memory_scaler.transform(X_long_memory)
+
+        probas_short_memory = self.short_memory_model.predict_proba(X_short_memory)
+        probas_medium_memory = self.medium_memory_model.predict_proba(X_medium_memory)
+        probas_long_memory = self.long_memory_model.predict_proba(X_long_memory)
+
+        predictions = [probas_short_memory, probas_medium_memory, probas_long_memory]
+
+        n_classes = 2
+        probas = np.zeros((X.shape[0], n_classes))
+
+        for prediction in predictions:
+            for c in range(n_classes):
+                probas[:, c] += prediction[:, c] / len(predictions)
+
+        probas = probas / probas.sum(axis=1)[:, np.newaxis]
+
+        return probas
+
+    def predict(self, X):
+        predictions = np.argmax(self.predict_proba(X), axis=1)
+        predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
+        predictions[predictions > self.smoothing_threshold] = 1
+        predictions[predictions <= self.smoothing_threshold] = 0
+        return predictions
+
 
 def get_estimator() -> Pipeline:
-    feature_extractor = FeatureExtractor()
+    feature_extractor_short_memory = FeatureExtractor_ElasticMemory(
+        memories=['1h', '3h', '5h'],
+        timelags=[1, 5, 10, -1, -5, -10]
+    )
 
-    classifier = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.7)
+    feature_extractor_medium_memory = FeatureExtractor_ElasticMemory(
+        memories=['10h', '20h', '30h', '50h', '80h'],
+        timelags=[600, 1200, 3000, -600, -1200, -3000]
+    )
+
+    feature_extractor_long_memory = FeatureExtractor_ElasticMemory(
+        memories=['80h', '90h', '100h'],
+        timelags=[4800, 6000, -4800, -6000]
+    )
 
     pipe = make_pipeline(
-        feature_extractor,
-        *get_preprocessing(),
-        classifier
+        MemoryEnsembleClassifier(
+            short_memory_extractor=feature_extractor_short_memory,
+            medium_memory_extractor=feature_extractor_medium_memory,
+            long_memory_extractor=feature_extractor_long_memory,
+            moving_avg=4,
+            smoothing_threshold=0.4)
     )
+
     return pipe
 

@@ -6,6 +6,7 @@ import test_environment.classifiers.baggingclassifier.estimator as bagging
 import test_environment.classifiers.gradientboosting.estimator as gradientboosting
 import test_environment.classifiers.cnn.estimator as cnn
 import test_environment.classifiers.ensemble.estimator as ensemble
+import test_environment.classifiers.ensemble.memory_estimator as memory_ensemble
 import test_environment.classifiers.xgboost.estimator as xgboost
 import test_environment.classifiers.mlp.estimator as mlp
 
@@ -21,9 +22,8 @@ data = (data_train, label_train, data_test, label_test)
 # run_estimator(randomforest.get_estimator(), "RandomForest", *data)
 # run_estimator(cnn.get_estimator(), "CNN", *data)
 
-# run_estimator(current.get_estimator(memory=10, characteristic_storm_duration=3, residual=0.6), "Markov XGBoost", *data)
-
-run_estimator(ensemble.get_estimator(), "Custom Ensemble", *data)
+# run_estimator(ensemble.get_estimator(), "Custom Ensemble", *data)
+run_estimator(memory_ensemble.get_estimator(), "Custom Memory Ensemble", *data)
 
 # run_estimator(xgboost.get_estimator(), "XGBoost", *data)
 

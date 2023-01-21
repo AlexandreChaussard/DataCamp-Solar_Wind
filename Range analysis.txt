@@ -1,0 +1,12 @@
+Range F 0: rolling variance -> small              OK
+Range F 1: rolling variance -> good               OK
+Range F 10: rolling max/rolling min + derivative
+Range F 11: rolling max/rolling variance          OK
+Range F 12: rolling max/rolling variance          OK
+Range F 13: rolling max/rolling variance          OK
+Range F 2: rolling variance => very good          OK
+Range F 3 à 9: rolling min/rolling variance       OK
+
+V: rolling mean + derivative
+
+Vth: rolling mean + derivative

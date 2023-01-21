@@ -268,16 +268,6 @@ class FeatureExtractor(BaseEstimator):
         print(f"               - Computing special parameters")
         X_df = self.compute_derivative(X_df, 'Beta')
         X_df = self.compute_derivative(X_df, 'Bx')
-        X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
-        X_df = self.compute_ratio_pression_vitesse_plasma(X_df)
-
-        if False:
-            print("               - Counting peaks and height")
-            X_df = self.compute_rolling_count_peaks(X_df, "Pdyn", time_window="2h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="2h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="20h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="50h")
-            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="100h")
 
 
         print("               - Rolling variance")
