@@ -418,9 +418,9 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
         self.medium_memory_pipe = medium_memory_extractor
         self.long_memory_pipe = long_memory_extractor
 
-        self.short_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.4)
-        self.medium_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.4)
-        self.long_memory_model = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.4)
+        self.short_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.5)
+        self.medium_memory_model = EnsembleClassifier(moving_avg=5, smoothing_threshold=0.4)
+        self.long_memory_model = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.3)
 
         self.short_memory_standardizer = preprocessing.StandardScaler()
         self.medium_memory_standardizer = preprocessing.StandardScaler()
@@ -478,14 +478,12 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
 
         for prediction in predictions:
             for c in range(n_classes):
-                probas[:, c] += prediction[:, c] / len(predictions)
-
-        probas = probas / probas.sum(axis=1)[:, np.newaxis]
+                probas[:, c] = np.maximum(prediction[:, c], probas[:, c])
 
         return probas
 
     def predict(self, X):
-        predictions = np.argmax(self.predict_proba(X), axis=1)
+        predictions = self.predict_proba(X)[:, 1]
         predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
         predictions[predictions > self.smoothing_threshold] = 1
         predictions[predictions <= self.smoothing_threshold] = 0
@@ -495,17 +493,17 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
 def get_estimator() -> Pipeline:
     feature_extractor_short_memory = FeatureExtractor_ElasticMemory(
         memories=['1h', '3h', '5h'],
-        timelags=[1, 5, 10, -1, -5, -10]
+        timelags=[1, 5, 10, 20, 40,  -1, -5, -10, -20, -40]
     )
 
     feature_extractor_medium_memory = FeatureExtractor_ElasticMemory(
         memories=['10h', '20h', '30h', '50h', '80h'],
-        timelags=[600, 1200, 3000, -600, -1200, -3000]
+        timelags=[60, 120, 300, -60, -120, -300]
     )
 
     feature_extractor_long_memory = FeatureExtractor_ElasticMemory(
         memories=['80h', '90h', '100h'],
-        timelags=[4800, 6000, -4800, -6000]
+        timelags=[480, 600, -480, -600]
     )
 
     pipe = make_pipeline(
@@ -513,9 +511,10 @@ def get_estimator() -> Pipeline:
             short_memory_extractor=feature_extractor_short_memory,
             medium_memory_extractor=feature_extractor_medium_memory,
             long_memory_extractor=feature_extractor_long_memory,
-            moving_avg=4,
-            smoothing_threshold=0.4)
+            moving_avg=6,
+            smoothing_threshold=0.53)
     )
 
     return pipe
+
 

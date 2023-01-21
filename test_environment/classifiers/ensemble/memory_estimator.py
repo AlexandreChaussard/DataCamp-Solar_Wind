@@ -1,15 +1,12 @@
-import sklearn.preprocessing
-
-from test_environment.utils import get_preprocessing, FeatureExtractor, Pipeline
-from test_environment.feature_extractor import FeatureExtractor_ElasticMemory
-from test_environment.classifiers.ensemble.estimator import EnsembleClassifier
-
-from sklearn.pipeline import make_pipeline
-import sklearn.preprocessing as preprocessing
-
-from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 import numpy as np
 import pandas as pd
+import sklearn.preprocessing as preprocessing
+from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
+from sklearn.pipeline import make_pipeline
+
+from test_environment.classifiers.ensemble.estimator import EnsembleClassifier
+from test_environment.feature_extractor import FeatureExtractor_ElasticMemory
+from test_environment.utils import Pipeline
 
 
 class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
@@ -93,14 +90,14 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
 
         for prediction in predictions:
             for c in range(n_classes):
-                probas[:, c] += prediction[:, c] / len(predictions)
+                probas[:, c] = np.maximum(prediction[:, c], probas[:, c])
 
-        probas = probas / probas.sum(axis=1)[:, np.newaxis]
+        # probas = probas / probas.sum(axis=1)[:, np.newaxis]
 
         return probas
 
     def predict(self, X):
-        predictions = np.argmax(self.predict_proba(X), axis=1)
+        predictions = self.predict_proba(X)[:, 1]
         predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
         predictions[predictions > self.smoothing_threshold] = 1
         predictions[predictions <= self.smoothing_threshold] = 0
@@ -128,8 +125,8 @@ def get_estimator() -> Pipeline:
             short_memory_extractor=feature_extractor_short_memory,
             medium_memory_extractor=feature_extractor_medium_memory,
             long_memory_extractor=feature_extractor_long_memory,
-            moving_avg=2,
-            smoothing_threshold=0.4)
+            moving_avg=6,
+            smoothing_threshold=0.53)
     )
 
     return pipe
