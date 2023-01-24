@@ -397,7 +397,9 @@ def get_estimator() -> Pipeline:
     return pipe
 
 
-class RegressorToClassifier:
+from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
+
+class RegressorToClassifier(BaseEstimator, ClassifierMixin, MultiOutputMixin):
 
     def __init__(self, regressor, classifier, sliding_window, moving_avg, smoothing_threshold):
         self.regressor = regressor

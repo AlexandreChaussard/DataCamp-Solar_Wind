@@ -50,6 +50,7 @@ def get_estimator() -> Pipeline:
 
     return pipe
 
+from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 
 class RegressorToClassifier:
 
