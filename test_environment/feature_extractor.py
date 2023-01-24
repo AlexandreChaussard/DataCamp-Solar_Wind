@@ -245,6 +245,7 @@ class FeatureExtractor_ElasticMemory:
     The obtained models should be different enough so I can consider a larger "ensemble learning" strategy.
     Then I'm gonna use an aggregation in their probability outputs, and hopefully I'll get the best out of each model.
     """
+
     def __init__(self, memories, timelags):
         self.memories = memories
         self.timelags = timelags
@@ -261,6 +262,18 @@ class FeatureExtractor_ElasticMemory:
         print(f"               [*] Preprocessing data with memories: {self.memories}")
 
         X_df = X.copy(deep=True)
+
+
+        tabular = [
+            "Beta",
+            "RmsBob",
+            "B",
+            "V",
+            "Vth"
+        ]
+        print(f"               - Smoothing features")
+        for feature in tabular:
+            X_df = fc.smooth(X_df, feature, time_window="1h20min", center=False)
 
         print(f"               - Computing special parameters")
         X_df = fc.compute_derivative(X_df, 'Beta')
@@ -337,17 +350,19 @@ class FeatureExtractor_ElasticMemory:
         X_df = fc.compute_cwt(X_df, "Beta", width=5)
         X_df = fc.compute_cwt(X_df, "Beta", width=2)
         X_df = fc.compute_cwt(X_df, "Vth", width=5)
+        X_df = fc.compute_cwt(X_df, "Beta", width=20)
+        X_df = fc.compute_cwt(X_df, "Beta", width=10)
+        X_df = fc.compute_cwt(X_df, "Vth", width=20)
 
-        print("               - Rolling quantile")
-        for memory in self.memories:
-            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.9)
-            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.7)
-            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.2)
-            X_df = fc.compute_rolling_quantile(X_df, "Range F 10", time_window=memory, quantile=0.2)
-            X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window=memory, quantile=0.9)
-            X_df = fc.compute_rolling_quantile(X_df, "RmsBob", time_window=memory, quantile=0.1)
-            X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window=memory, quantile=0.7)
-            X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window=memory, quantile=0.1)
+        print("               - Rolling quantiles")
+        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
+        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.7)
+        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.2)
+        X_df = fc.compute_rolling_quantile(X_df, "Range F 11", time_window="2h", quantile=0.2)
+        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
+        X_df = fc.compute_rolling_quantile(X_df, "RmsBob", time_window="2h", quantile=0.1)
+        X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.7)
+        X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.1)
 
         print("               - Rolling median")
         for memory in self.memories:
@@ -367,33 +382,19 @@ class FeatureExtractor_ElasticMemory:
         return X_df
 
 
-def aggregate_predictions_proba(X_test, *models):
+def get_preprocessing():
+    return preprocessing.StandardScaler(), preprocessing.MinMaxScaler()
+
+
+def sliding_label(y: np.array, sliding_window):
     """
-    A function to aggregate predictions probabilities of multiple models
+    Transforms y (labels in 0,1) in a continuous representation through a sliding window
+    that counts the number of ones (CME) seen in the window
     """
-    n_classes = 2
-    probas = np.zeros((X_test.shape[0], n_classes))
+    y_reg = np.zeros(len(y))
+    for i in range(0, len(y)):
+        sliding_index = min(i + sliding_window, len(y) - 1)
+        y_reg[i] = y[i:sliding_index].sum()
 
-    for model in models:
-        predictions = model.predict_proba(X_test)
-        for c in range(n_classes):
-            probas[:, c] += predictions[:, c] / len(models)
-
-    probas = probas / probas.sum(axis=1)[:, np.newaxis]
-    return probas
-
-
-def aggregate_predictions(X_test, *models, rolling_window, threshold):
-    """
-    A function to aggregate predictions of multiple models and adding a smoothing to the predictions
-    to reflect the quality of "time series" we're supposed to have in predictions.
-
-    i.e. if I predict a solar storm, then I shouldn't have small gaps in between (it's continuous)
-
-    I also added a thresholding parameter to control balance with a higher parameter
-    """
-    predictions = aggregate_predictions_proba(X_test, *models)
-    predictions = pd.DataFrame(data=predictions).rolling(rolling_window).mean().ffill().bfill().values
-    predictions[predictions > threshold] = 1
-    predictions[predictions <= threshold] = 0
-    return predictions
+    y_reg = y_reg
+    return y_reg

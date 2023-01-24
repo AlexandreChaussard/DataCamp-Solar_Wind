@@ -4,6 +4,8 @@ import sklearn.preprocessing as preprocessing
 from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 from sklearn.pipeline import make_pipeline
 
+from sklearn.ensemble import HistGradientBoostingClassifier
+
 from test_environment.classifiers.ensemble.estimator import EnsembleClassifier
 from test_environment.feature_extractor import FeatureExtractor_ElasticMemory
 from test_environment.utils import Pipeline
@@ -20,6 +22,9 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
             short_memory_extractor,
             medium_memory_extractor,
             long_memory_extractor,
+            short_memory_model,
+            medium_memory_model,
+            long_memory_model,
             moving_avg=6,
             smoothing_threshold=0.5,
             random_state=None
@@ -30,17 +35,13 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
         self.medium_memory_pipe = medium_memory_extractor
         self.long_memory_pipe = long_memory_extractor
 
-        self.short_memory_model = EnsembleClassifier(moving_avg=4, smoothing_threshold=0.5)
-        self.medium_memory_model = EnsembleClassifier(moving_avg=5, smoothing_threshold=0.4)
-        self.long_memory_model = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.3)
+        self.short_memory_model = short_memory_model
+        self.medium_memory_model = medium_memory_model
+        self.long_memory_model = long_memory_model
 
-        self.short_memory_standardizer = preprocessing.StandardScaler()
-        self.medium_memory_standardizer = preprocessing.StandardScaler()
-        self.long_memory_standardizer = preprocessing.StandardScaler()
         self.short_memory_scaler = preprocessing.MinMaxScaler()
         self.medium_memory_scaler = preprocessing.MinMaxScaler()
         self.long_memory_scaler = preprocessing.MinMaxScaler()
-
 
         self.moving_avg = moving_avg
         self.smoothing_threshold = smoothing_threshold
@@ -51,9 +52,6 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
         X_medium_memory = self.medium_memory_pipe.transform(X)
         X_long_memory = self.long_memory_pipe.transform(X)
 
-        X_short_memory = self.short_memory_standardizer.fit_transform(X_short_memory, y)
-        X_medium_memory = self.medium_memory_standardizer.fit_transform(X_medium_memory, y)
-        X_long_memory = self.long_memory_standardizer.fit_transform(X_long_memory, y)
         X_short_memory = self.short_memory_scaler.fit_transform(X_short_memory, y)
         X_medium_memory = self.medium_memory_scaler.fit_transform(X_medium_memory, y)
         X_long_memory = self.long_memory_scaler.fit_transform(X_long_memory, y)
@@ -72,9 +70,6 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
         X_medium_memory = self.medium_memory_pipe.transform(X)
         X_long_memory = self.long_memory_pipe.transform(X)
 
-        X_short_memory = self.short_memory_standardizer.transform(X_short_memory)
-        X_medium_memory = self.medium_memory_standardizer.transform(X_medium_memory)
-        X_long_memory = self.long_memory_standardizer.transform(X_long_memory)
         X_short_memory = self.short_memory_scaler.transform(X_short_memory)
         X_medium_memory = self.medium_memory_scaler.transform(X_medium_memory)
         X_long_memory = self.long_memory_scaler.transform(X_long_memory)
@@ -104,20 +99,34 @@ class MemoryEnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator)
         return predictions
 
 
+def get_xgboost(weight_minority_class=2.0, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
+    classifier = HistGradientBoostingClassifier(max_iter=200,
+                                                loss='log_loss',
+                                                max_depth=max_depth,
+                                                learning_rate=learning_rate,
+                                                l2_regularization=2,
+                                                early_stopping=True,
+                                                validation_fraction=validation_fraction,
+                                                tol=10e-3,
+                                                class_weight={0: 1, 1: weight_minority_class}
+                                                )
+    return classifier
+
+
 def get_estimator() -> Pipeline:
     feature_extractor_short_memory = FeatureExtractor_ElasticMemory(
-        memories=['1h', '3h', '5h'],
-        timelags=[1, 5, 10, 20, 40,  -1, -5, -10, -20, -40]
+        memories=['1h', '3h'],
+        timelags=[1, 5, 10, 20, 40, -1, -5, -10, -20, -40]
     )
 
     feature_extractor_medium_memory = FeatureExtractor_ElasticMemory(
-        memories=['10h', '20h', '30h', '50h', '80h'],
+        memories=['2h', '5h', '10h', '20h', '30h', '50h', '80h'],
         timelags=[60, 120, 300, -60, -120, -300]
     )
 
     feature_extractor_long_memory = FeatureExtractor_ElasticMemory(
-        memories=['80h', '90h', '100h'],
-        timelags=[480, 600, -480, -600]
+        memories=['90h', '100h'],
+        timelags=[600, -600]
     )
 
     pipe = make_pipeline(
@@ -126,7 +135,25 @@ def get_estimator() -> Pipeline:
             medium_memory_extractor=feature_extractor_medium_memory,
             long_memory_extractor=feature_extractor_long_memory,
             moving_avg=6,
-            smoothing_threshold=0.53)
+            short_memory_model=get_xgboost(
+                weight_minority_class=1,
+                max_depth=4,
+                learning_rate=10e-3,
+                validation_fraction=0.5
+            ),
+            medium_memory_model=get_xgboost(
+                weight_minority_class=1,
+                max_depth=4,
+                learning_rate=10e-3,
+                validation_fraction=0.5
+            ),
+            long_memory_model=get_xgboost(
+                weight_minority_class=1,
+                max_depth=4,
+                learning_rate=10e-3,
+                validation_fraction=0.5
+            ),
+            smoothing_threshold=0.3)
     )
 
     return pipe

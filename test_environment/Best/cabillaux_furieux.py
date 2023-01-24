@@ -1,16 +1,29 @@
 # General imports
-import numpy as np
+from sklearn import preprocessing
+import sklearn.impute as impute
+from sklearn.pipeline import Pipeline
 import pandas as pd
+import numpy as np
+
+from sklearn.base import BaseEstimator
+
+from sklearn.pipeline import make_pipeline
 from scipy import signal
 from scipy import stats
-from sklearn import preprocessing
-from sklearn.pipeline import Pipeline, make_pipeline
 
 
-from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.ensemble import HistGradientBoostingClassifier
+# Model imports
 
-class FeatureComputer:
+
+class FeatureExtractor(BaseEstimator):
+
+    def __init__(self):
+        super().__init__()
+        self.n_features = 33 + 11
+
+    def fit(self, X, y):
+        return self
+
     def smooth(self, X_df: pd.DataFrame, feature, time_window, center=False):
         X_df[feature] = X_df[feature].rolling(time_window, center=center).mean()
         return X_df
@@ -191,149 +204,112 @@ class FeatureComputer:
                 X_df = self.drop_columns(X_df, [feature])
         return X_df
 
+    def transform_new(self, X):
 
-class FeatureExtractor_ElasticMemory:
-    """
-    This class is about extracting features with a given memory in time.
-    The idea is that I'm gonna feed models with different memory sizes in order to get the most sense out of
-    different areas in time.
+        print("             [*] Preprocessing data")
 
-    The obtained models should be different enough so I can consider a larger "ensemble learning" strategy.
-    Then I'm gonna use an aggregation in their probability outputs, and hopefully I'll get the best out of each model.
-    """
+        columns = ["Beta", ]
+        print(f"               - Reducing columns to {columns}")
+        X_df = X["Beta"]
 
-    def __init__(self, memories, timelags):
-        self.memories = memories
-        self.timelags = timelags
+        return X_df
 
-    def fit(self, X, y):
-        return self
-
-    def transform(self, X: pd.DataFrame):
+    def transform(self, X):
         import warnings
         warnings.filterwarnings('ignore')
+        print("               [*] Preprocessing data")
 
-        fc = FeatureComputer()
+        X_df = X
 
-        print(f"               [*] Preprocessing data with memories: {self.memories}")
-
-        X_df = X.copy(deep=True)
-
-
-        tabular = [
-            "Beta",
-            "RmsBob",
-            "B",
-            "V",
-            "Vth"
-        ]
-        print(f"               - Smoothing features")
-        for feature in tabular:
-            X_df = fc.smooth(X_df, feature, time_window="1h20min", center=False)
+        smoothed_columns = ["Beta", "RmsBob", "B", "V"]
+        print(f"               - Smooth features: {smoothed_columns}")
+        for feature in smoothed_columns:
+            X_df = self.smooth(X_df, feature, time_window="1h", center=False)
 
         print(f"               - Computing special parameters")
-        X_df = fc.compute_derivative(X_df, 'Beta')
-        X_df = fc.compute_derivative(X_df, 'Bx')
-        X_df = fc.compute_derivative(X_df, 'Range F 10')
-        X_df = fc.compute_derivative(X_df, 'V')
-        X_df = fc.compute_derivative(X_df, 'Vth')
+        X_df = self.compute_derivative(X_df, 'Beta')
+        X_df = self.compute_derivative(X_df, 'Bx')
+        X_df = self.compute_ratio_pression_magnetique_plasma(X_df)
+        X_df = self.compute_ratio_pression_vitesse_plasma(X_df)
 
-        print("               - Rolling mean")
-        for memory in self.memories:
-            X_df = fc.compute_rolling_mean(X_df, 'V_derivative', memory)
-            X_df = fc.compute_rolling_mean(X_df, 'Vth_derivative', memory)
-            X_df = fc.compute_rolling_mean(X_df, 'Beta', memory)
+        if False:
+            print("               - Counting peaks and height")
+            X_df = self.compute_rolling_count_peaks(X_df, "Pdyn", time_window="2h")
+            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="2h")
+            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="20h")
+            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="50h")
+            X_df = self.compute_rolling_peaks_height(X_df, "Pdyn", time_window="100h")
 
         print("               - Rolling variance")
-        tabular = [
-            "Beta",
-            "Np",
-            "Np_nl",
-            "Range F 0",
-            "Range F 1",
-            "Range F 10",
-            "Range F 11",
-            "Range F 12",
-            "Range F 13",
-            "Range F 2",
-            "Range F 3",
-            "Range F 4",
-            "Range F 5",
-            "Range F 6",
-            "Range F 7",
-            "Range F 8",
-            "Range F 9"
-        ]
+        tabular = ["Beta", "Np", "Np_nl"]
         for feature in tabular:
-            for memory in self.memories:
-                X_df = fc.compute_rolling_var(X_df, feature, memory)
+            X_df = self.compute_rolling_var(X_df, feature, "1h")
+            X_df = self.compute_rolling_var(X_df, feature, "5h")
+            X_df = self.compute_rolling_var(X_df, feature, "20h")
+            X_df = self.compute_rolling_var(X_df, feature, "50h")
+            X_df = self.compute_rolling_var(X_df, feature, "100h")
 
         print("               - Rolling min")
-        tabular = [
-            "Beta",
-            "B",
-            "By",
-            "Bz",
-            "Na_nl",
-            "Vx",
-            "Range F 10",
-            "Range F 10_derivative"
-        ]
+        tabular = ["Beta", "B", "By", "Bz", "Na_nl", "Vx", "PMP_Ratio"]
         for feature in tabular:
-            for memory in self.memories:
-                X_df = fc.compute_rolling_min(X_df, feature, memory)
+            X_df = self.compute_rolling_min(X_df, feature, "1h")
+            X_df = self.compute_rolling_min(X_df, feature, "5h")
+            X_df = self.compute_rolling_min(X_df, feature, "15h")
+            X_df = self.compute_rolling_min(X_df, feature, "50h")
+            X_df = self.compute_rolling_min(X_df, feature, "100h")
 
         print("               - Rolling max")
-        tabular = [
-            "Beta",
-            "B",
-            "Np",
-            "Np_nl",
-            "Range F 10",
-            "Range F 10_derivative",
-            "Range F 11",
-            "Range F 12",
-            "Range F 13",
-            "V",
-            "Vth",
-            "RmsBob"
-        ]
+        tabular = ["Beta", "B", "Np", "Np_nl", "Range F 0", "Range F 1", "Range F 10", "V", "Vth", "RmsBob"]
         for feature in tabular:
-            for memory in self.memories:
-                X_df = fc.compute_rolling_max(X_df, feature, memory)
+            X_df = self.compute_rolling_max(X_df, feature, "1h")
+            X_df = self.compute_rolling_max(X_df, feature, "5h")
+            X_df = self.compute_rolling_max(X_df, feature, "23h")
+            X_df = self.compute_rolling_max(X_df, feature, "50h")
+            X_df = self.compute_rolling_max(X_df, feature, "100h")
 
         print("               - CWT")
-        X_df = fc.compute_cwt(X_df, "Beta", width=5)
-        X_df = fc.compute_cwt(X_df, "Beta", width=2)
-        X_df = fc.compute_cwt(X_df, "Vth", width=5)
-        X_df = fc.compute_cwt(X_df, "Beta", width=20)
-        X_df = fc.compute_cwt(X_df, "Beta", width=10)
-        X_df = fc.compute_cwt(X_df, "Vth", width=20)
+        X_df = self.compute_cwt(X_df, "Beta", width=20)
+        X_df = self.compute_cwt(X_df, "Beta", width=10)
+        X_df = self.compute_cwt(X_df, "Beta", width=2)
+        X_df = self.compute_cwt(X_df, "Vth", width=20)
 
-        print("               - Rolling quantiles")
-        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
-        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.7)
-        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.2)
-        X_df = fc.compute_rolling_quantile(X_df, "Range F 11", time_window="2h", quantile=0.2)
-        X_df = fc.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
-        X_df = fc.compute_rolling_quantile(X_df, "RmsBob", time_window="2h", quantile=0.1)
-        X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.7)
-        X_df = fc.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.1)
+        print("               - Rolling quantile")
+        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
+        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.7)
+        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.2)
+        X_df = self.compute_rolling_quantile(X_df, "Range F 11", time_window="2h", quantile=0.2)
+        X_df = self.compute_rolling_quantile(X_df, "Beta", time_window="2h", quantile=0.9)
+        X_df = self.compute_rolling_quantile(X_df, "RmsBob", time_window="2h", quantile=0.1)
+        X_df = self.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.7)
+        X_df = self.compute_rolling_quantile(X_df, "Vth", time_window="2h", quantile=0.1)
+
+        print("               - Rolling energy")
+        X_df = self.compute_rolling_energy(X_df, "Beta", time_window="2h")
+        X_df = self.compute_rolling_energy(X_df, "Vth", time_window="2h")
 
         print("               - Rolling median")
-        for memory in self.memories:
-            X_df = fc.compute_rolling_median(X_df, "Range F 11", time_window=memory)
-            X_df = fc.compute_rolling_median(X_df, "Vth", time_window=memory)
+        X_df = self.compute_rolling_median(X_df, "Range F 11", time_window="2h")
+        X_df = self.compute_rolling_median(X_df, "Vth", time_window="2h")
 
         print("               - Time lags")
-        for feature in ["Beta", "RmsBob", "Vx", "Range F 9"]:
-            for time_lag in self.timelags:
-                X_df = fc.compute_feature_lag(X_df, feature, time_lag)
+        for feature in ["Beta", "RmsBob", "Vx", "Range F 9", "Beta_1h_max"]:
+            X_df = self.compute_feature_lag(X_df, feature, -1)
+            X_df = self.compute_feature_lag(X_df, feature, -5)
+            X_df = self.compute_feature_lag(X_df, feature, -10)
+            X_df = self.compute_feature_lag(X_df, feature, -20)
+            X_df = self.compute_feature_lag(X_df, feature, -50)
+            X_df = self.compute_feature_lag(X_df, feature, -100)
+            X_df = self.compute_feature_lag(X_df, feature, 1)
+            X_df = self.compute_feature_lag(X_df, feature, 5)
+            X_df = self.compute_feature_lag(X_df, feature, 10)
+            X_df = self.compute_feature_lag(X_df, feature, 20)
+            X_df = self.compute_feature_lag(X_df, feature, 50)
+            X_df = self.compute_feature_lag(X_df, feature, 100)
 
         print("               - Filling missing values")
         X_df = X_df.fillna(method='ffill').fillna(method='bfill')
 
-        print("               [*] Ready to enter the classifier")
+        print("               [*] Done! Running a few last filters and fitting/predicting...")
 
         return X_df
 
@@ -342,102 +318,80 @@ def get_preprocessing():
     return preprocessing.StandardScaler(), preprocessing.MinMaxScaler()
 
 
-def sliding_label(y: np.array, sliding_window):
-    """
-    Transforms y (labels in 0,1) in a continuous representation through a sliding window
-    that counts the number of ones (CME) seen in the window
-    """
-    y_reg = np.zeros(len(y))
-    for i in range(0, len(y)):
-        sliding_index = min(i + sliding_window, len(y) - 1)
-        y_reg[i] = y[i:sliding_index].sum()
-
-    y_reg = y_reg
-    return y_reg
-
-def get_estimator() -> Pipeline:
-    feature_extractor = FeatureExtractor_ElasticMemory(
-        memories=["1h", "2h", "3h", "5h",
-                  "10h", "15h", "20h", "30h", "50h", "70h",
-                  "80h", "100h"],
-        timelags=[6, 12, 18, 30,
-                  60, 90, 120, 180, 300, 420,
-                  480, 600]
-    )
-
-    regressor = HistGradientBoostingRegressor(max_iter=200,
-                                              max_depth=4,
-                                              learning_rate=10e-2,
-                                              l2_regularization=1,
-                                              validation_fraction=0.3,
-                                              tol=10e-3)
-
-    classifier = HistGradientBoostingClassifier(max_iter=200,
-                                                max_depth=3,
-                                                learning_rate=10e-2,
-                                                l2_regularization=1,
-                                                early_stopping=True,
-                                                validation_fraction=0.3,
-                                                tol=10e-3,
-                                                scoring='accuracy',
-                                                class_weight={0: 1, 1: 1})
-
-    regressor_classifier = RegressorToClassifier(regressor=regressor,
-                                                 classifier=classifier,
-                                                 sliding_window=120,
-                                                 moving_avg=4,
-                                                 smoothing_threshold=0.57)
-
-    pipe = make_pipeline(
-        feature_extractor,
-        *get_preprocessing(),
-        regressor_classifier
-    )
-
-    return pipe
+from sklearn.pipeline import make_pipeline
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.base import BaseEstimator, ClassifierMixin, MultiOutputMixin
 
 
-class RegressorToClassifier:
+class EnsembleClassifier(MultiOutputMixin, ClassifierMixin, BaseEstimator):
 
-    def __init__(self, regressor, classifier, sliding_window, moving_avg, smoothing_threshold):
-        self.regressor = regressor
-        self.classifier = classifier
-        self.sliding_window = sliding_window
-
-        # Smoothing parameters
+    def __init__(self, moving_avg=6, smoothing_threshold=0.5, random_state=None):
+        self.models = []
+        self.random_state = random_state
         self.moving_avg = moving_avg
         self.smoothing_threshold = smoothing_threshold
+        self.add_xgboost(
+            weight_minority_class=1,
+            max_depth=4,
+            validation_fraction=0.1,
+        )
+        self.add_xgboost(
+            weight_minority_class=2.1,
+            max_depth=4,
+            validation_fraction=0.4,
+        )
+        self.add_xgboost(
+            weight_minority_class=2.8,
+            max_depth=4,
+            validation_fraction=0.1,
+        )
+
+    def add_xgboost(self, weight_minority_class=2.0, max_depth=2, learning_rate=10e-2, validation_fraction=0.5):
+        classifier = HistGradientBoostingClassifier(max_iter=200,
+                                                    loss='log_loss',
+                                                    max_depth=max_depth,
+                                                    learning_rate=learning_rate,
+                                                    l2_regularization=2,
+                                                    early_stopping=True,
+                                                    validation_fraction=validation_fraction,
+                                                    tol=10e-3,
+                                                    class_weight={0: 1, 1: weight_minority_class},
+                                                    random_state=self.random_state)
+        self.models.append(classifier)
 
     def fit(self, X, y, sample_weight=None):
-
-        # We turn the y into a continous flow containing the time series aspect of the problem
-        print("Sliding window")
-        y_reg = sliding_label(y.values, self.sliding_window)
-        # We fit the regressor
-        print("Fitting regressor")
-        self.regressor.fit(X, y_reg)
-        # We compute the theoritical output corresponding to it
-        print("Predicting regressor")
-        y_pred_reg = self.regressor.predict(X).reshape(-1, 1)
-        X_reg = np.concatenate((X, y_pred_reg), axis=1)
-        # We fit the classifier on the regression output to predict the actual class
-        print("Fitting classifier")
-        self.classifier.fit(X_reg, y)
-
+        for model in self.models:
+            model.fit(X, y)
         self.classes_ = np.unique(y)
         return self
 
     def predict_proba(self, X):
-        print("Predicting regressor proba")
-        y_pred_reg = self.regressor.predict(X).reshape(-1, 1)
-        X_reg = np.concatenate((X, y_pred_reg), axis=1)
-        print("Predicting classifier proba")
-        return self.classifier.predict_proba(X_reg)
+        probas = np.zeros((X.shape[0], len(self.classes_)))
+
+        for model in self.models:
+            predictions = model.predict_proba(X)
+            for c in range(len(self.classes_)):
+                probas[:, c] += predictions[:, c] / len(self.models)
+
+        probas = probas / probas.sum(axis=1)[:, np.newaxis]
+        return probas
 
     def predict(self, X):
-        predictions = self.predict_proba(X)[:, 1]
+        predictions = np.argmax(self.predict_proba(X), axis=1)
         predictions = pd.DataFrame(data=predictions).rolling(self.moving_avg).mean().ffill().bfill().values
         predictions[predictions > self.smoothing_threshold] = 1
         predictions[predictions <= self.smoothing_threshold] = 0
         return predictions
 
+
+def get_estimator() -> Pipeline:
+    feature_extractor = FeatureExtractor()
+
+    classifier = EnsembleClassifier(moving_avg=10, smoothing_threshold=0.7)
+
+    pipe = make_pipeline(
+        feature_extractor,
+        *get_preprocessing(),
+        classifier
+    )
+    return pipe
